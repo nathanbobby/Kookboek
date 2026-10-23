@@ -1,0 +1,17 @@
+{
+  "name": "Sterk & Smaakvol – Kookboek",
+  "short_name": "Kookboek",
+  "description": "Persoonlijk kookboek met boodschappenlijst en kookmodus, ook offline.",
+  "lang": "nl",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f7f4ee",
+  "theme_color": "#2f5d50",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
