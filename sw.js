@@ -1,8 +1,8 @@
 // Service worker: houdt de app en de meegeleverde recepten offline beschikbaar.
 // Verhoog VERSIE bij elke nieuwe versie van de app-bestanden.
-const VERSIE = 'kookboek-v1';
+const VERSIE = 'kookboek-v2';
 const BESTANDEN = [
-  './', 'index.html', 'style.css', 'app.js', 'config.js', 'manifest.webmanifest',
+  './', 'index.html', 'style.css', 'stappen.js', 'app.js', 'config.js', 'manifest.webmanifest',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png', 'data/recepten.json'
 ];
 
