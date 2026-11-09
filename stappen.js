@@ -7,7 +7,7 @@
 (function (root) {
   'use strict';
   const norm = s => String(s ?? '').normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase();
-
+ 
   const EENHEID_RE = /^(gram|g|gr|kilogram|kg|milliliter|ml|liter|l|cl|dl|eetlepels?|el|theelepels?|tl|stuks?|st|teentjes?|tenen|blaadjes?|takjes?|plakjes?|snufjes?|blikken|blik|bosjes?|zakjes?|kopjes?|scheutjes?|bolletjes?|sneetjes?|sneden|plakken)$/;
   // woorden waarna een getal géén hoeveelheid is
   const GEEN_HOEVEELHEID = /^(minuten|minuut|min|uur|uren|seconden|sec|graden|c|cm|centimeter|mm|millimeter|watt|w|keer|dagen|dag|weken|maanden|porties|portie|potten|glazen|kommen|stappen|delen|procent)$/;
@@ -16,7 +16,7 @@
     'gerookt gerookte zoete zoet rode groene gele witte grote kleine middelgrote ongezoet ongezouten bevroren diepvries ' +
     'uitgelekte uitgelekt geraspte geraspt gedroogde gedroogd droge naar keuze optioneel bereid uit griekse lange korte ' +
     'gemalen hele halve dunne dikke reepjes ringen partjes plakjes schijfjes gram ml liter vloeibare zachte harde jonge oude ' +
-    'pure zure mild milde pittige vanille vloeibaar').split(' '));
+    'pure zure mild milde pittige vanille vloeibaar bruin bruine goudbruin lichtbruin donkerbruin').split(' '));
   // gewone schrijfwijzen in stappen -> woord dat in de ingrediëntnaam staat
   const SYNONIEMEN = {
     whey: ['eiwitpoeder', 'proteinepoeder', 'whey'], proteinepoeder: ['eiwitpoeder'], eiwitpoeder: ['proteinepoeder', 'whey'],
@@ -41,7 +41,7 @@
     return s;
   }
   const isTelwoord = (tel, w) => tel.has(w) || [...tel].some(t => !STOP.has(t) && t.length >= 4 && w.length >= 4 && (t.startsWith(w) || w.startsWith(t)));
-
+ 
   function schaalStap(tekst, f, items) {
     const tel = telwoorden(items);
     const delen = []; let laatste = 0;
@@ -64,7 +64,7 @@
     if (laatste < tekst.length) delen.push(tekst.slice(laatste));
     return delen;
   }
-
+ 
   function tokens(tekst) {
     // woorden (samenstellingen met koppelteken blijven één token), getallen en leestekens die een zinsdeel afsluiten
     return (norm(tekst).match(/\d+(?:[.,]\d+)?|[a-z]+(?:-[a-z]+)*|[,;.:()]/g) || []);
@@ -99,7 +99,7 @@
     }
     return false;
   }
-
+ 
   function stapIngredienten(tekst, items, opties) {
     const tok = tokens(tekst);
     const kandidaten = (items || []).filter(it => it.q != null).map(it => ({ item: it, sleutels: sleutelwoorden(it.naam) }));
@@ -131,7 +131,7 @@
     if (opties && opties.alles) return lijst.map(([k, st]) => ({ item: k.item, expliciet: st.expliciet }));
     return lijst.filter(([, st]) => !st.expliciet).map(([k]) => ({ item: k.item }));
   }
-
+ 
   // Per recept: toon een ingrediënt alleen bij de eerste stap waarin het voorkomt
   // (een latere "haal de kip uit de pan" herhaalt dan niet de volledige hoeveelheid).
   function perStap(stappen, items) {
@@ -146,7 +146,8 @@
       return res;
     });
   }
-
+ 
   const api = { schaalStap, stapIngredienten, perStap };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.Stappen = api;
 })(typeof window !== 'undefined' ? window : this);
+ 
