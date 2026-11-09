@@ -11,7 +11,7 @@
  */
 
 // Adres van de recepten die bij de app horen (GitHub Pages). Enkel nodig bij de eerste installatie.
-const STARTDATA_URL = 'https://JOUW-GITHUB-NAAM.github.io/kookboek/data/recepten.json';
+const STARTDATA_URL = 'https://nathanbobby.github.io/Kookboek/data/recepten.json';
 
 const TAB_RECEPTEN = 'Recepten';
 const TAB_CATEGORIEEN = 'Categorieën';
