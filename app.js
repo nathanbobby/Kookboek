@@ -19,6 +19,7 @@ const S = {
   filter: { q: '', cat: '', snel: [], sort: 'boek' },
   porties: {}, variant: {}, aangevinkt: {},
   laatsteSync: opslag.get('laatsteSync', null),
+  mcVoorkeur: opslag.get('mcVoorkeur', null),       // fornuis | snel | slow
   syncBezig: false
 };
 const dataUrl = () => S.instellingen.dataUrl || CFG.dataUrl || '';
@@ -146,7 +147,8 @@ async function cacheSchrijf(d) {
 function zetData(d) {
   const r = (d.recepten || []).filter(x => x && x.naam).map(x => Object.assign({}, x, { id: x.id || norm(x.naam).replace(/[^a-z0-9]+/g, '-') }));
   r.forEach(x => { x._zoek = norm([x.naam, x.categorie, x.subcategorie, x.tags, x.beschrijving, x.ingredienten].join(' ')); });
-  S.data = { categorieen: d.categorieen || [], recepten: r, bijgewerkt: d.bijgewerkt };
+  const cats = (d.categorieen || []).slice().sort((a, b) => (getal(a.nr) ?? 999) - (getal(b.nr) ?? 999)); // volgorde volgens nr, ook als de Sheet ze anders ordent
+  S.data = { categorieen: cats, recepten: r, bijgewerkt: d.bijgewerkt };
 }
 async function laad() {
   const c = await cacheLees();
@@ -240,6 +242,7 @@ function markeerActief() { document.querySelectorAll('.card').forEach(c => c.cla
 
 // ------------------------------------------------------------------ receptenlijst
 const SNEL = [
+  ['mc', 'Multicooker', r => Varianten.beschikbareVarianten(r).length > 1],
   ['fav', 'Favorieten', r => S.fav.has(r.id)],
   ['snel', '≤ 20 min', r => getal(r.totaal_min) != null && r.totaal_min <= 20],
   ['eiwit', '30 g+ eiwit', r => getal(r.eiwit) >= 30 && (r.voedingswaarden_basis || 'per portie').includes('portie')],
@@ -329,8 +332,10 @@ function gekozenVariant(r, groepen) {
   if (!vs.length) return null;
   return vs.includes(S.variant[r.id]) ? S.variant[r.id] : vs[0];
 }
-function zichtbareGroepen(r) {
-  const groepen = parseIngredienten(r.ingredienten);
+// Actieve bereiding (fornuis of multicookervariant) volgens de opgeslagen voorkeur
+function actief(r, mc) { return Varianten.receptVoorVariant(r, mc === undefined ? S.mcVoorkeur : mc); }
+function zichtbareGroepen(r, mc) {
+  const groepen = parseIngredienten(actief(r, mc).ingredienten);
   const v = gekozenVariant(r, groepen);
   return { groepen: groepen.filter(g => !g.variant || g.titel === v), alle: groepen, variant: v };
 }
@@ -348,7 +353,7 @@ function portieLabel(r) {
 function stappenHTML(r) {
   const f = factor(r);
   const items = zichtbareGroepen(r).groepen.flatMap(g => g.items);
-  const stappen = regels(r.stappen);
+  const stappen = regels(actief(r).stappen);
   const nodig = window.Stappen ? Stappen.perStap(stappen, items) : stappen.map(() => []);
   return stappen.map((s, i) => {
     const delen = window.Stappen ? Stappen.schaalStap(s, f, items) : [s];
@@ -358,12 +363,19 @@ function stappenHTML(r) {
     return { tekst, lijst, ruw: s };
   });
 }
+// Instellingenkaart en tips van een multicookervariant
+function mcKaart(act) {
+  if (act.variant === 'fornuis') return '';
+  const rijen = act.instellingen.map(i => `<div><dt>${esc(i.sleutel || 'Let op')}</dt><dd>${esc(i.waarde)}</dd></div>`).join('');
+  return `<div class="mc-kaart"><dl>${rijen}</dl></div>${act.tips ? `<details class="md mc-tips"><summary>Tips voor de multicooker</summary>${md(act.tips)}</details>` : ''}`;
+}
 function detailHTML(r) {
   const f = factor(r);
   const { groepen, alle, variant } = zichtbareGroepen(r);
   const varianten = alle.filter(g => g.variant).map(g => g.titel);
   const basis = getal(r.porties);
-  const stappen = regels(r.stappen);
+  const act = actief(r), mcVarianten = Varianten.beschikbareVarianten(r);
+  const stappen = regels(act.stappen);
   const fact = (t, v) => v ? `<div class="fact"><small>${t}</small><b>${esc(v)}</b></div>` : '';
   const min = v => getal(v) != null ? `${v} min` : '';
   const checked = S.aangevinkt[r.id] || {};
@@ -396,14 +408,17 @@ function detailHTML(r) {
         ${stappen.length ? `<button class="btn primary" id="kookBtn">${ICON.play} Kookmodus</button>` : ''}
         ${groepen.length ? `<button class="btn ${op ? '' : 'warm'}" id="lijstBtn">${ICON.cart} ${op ? 'Bijwerken op lijst' : 'Op boodschappenlijst'}</button>` : ''}
       </div>` : ''}
+      ${mcVarianten.length > 1 ? `<div class="mc-schakelaar" role="group" aria-label="Bereidingswijze">${mcVarianten.map(v =>
+        `<button class="${v === act.variant ? 'on' : ''}" data-mc="${v}" aria-pressed="${v === act.variant}">${Varianten.LABELS[v]}</button>`).join('')}</div>` : ''}
       ${groepen.length ? `<div class="section"><h3>Ingrediënten
           <span class="stepper"><button data-p="-1" aria-label="Minder">−</button><span>${portieLabel(r)}</span><button data-p="1" aria-label="Meer">+</button></span></h3>
         ${varianten.length ? `<div class="variant">${varianten.map(v => `<button class="chip ${v === variant ? 'on' : ''}" data-variant="${esc(v)}">${esc(v)}</button>`).join('')}</div>` : ''}
         ${ingHtml}
         ${f !== 1 ? `<p class="note">Omgerekend van ${basis ? `${fmt(basis)} naar ${fmt(basis * f)} porties` : `het basisrecept naar × ${fmt(f)}`}. De bereidingsstappen hieronder gebruiken dezelfde hoeveelheden.</p>` : ''}
+        ${f !== 1 && act.variant !== 'fornuis' ? `<p class="note mc-let-op">Multicooker: de kooktijd onder druk blijft gelijk. Vul de pot niet boven 2/3 (½ bij pap, peulvruchten en pasta) en gebruik minstens 250 ml vocht.</p>` : ''}
       </div>` : ''}
       ${r.keukengerei ? `<div class="section"><h3>Keukengerei</h3><p style="margin:0">${lijstVan(r.keukengerei, /;|•/).map(esc).join(' · ')}</p></div>` : ''}
-      ${stappen.length ? `<div class="section"><h3>Bereiding</h3><ol class="steps">${stappenHTML(r).map(st => `<li><div>${st.tekst}</div>${st.lijst}</li>`).join('')}</ol></div>` : ''}
+      ${stappen.length ? `<div class="section"><h3>Bereiding${act.variant !== 'fornuis' ? ` <small class="count">${Varianten.LABELS[act.variant]}</small>` : ''}</h3>${mcKaart(act)}<ol class="steps">${stappenHTML(r).map(st => `<li><div>${st.tekst}</div>${st.lijst}</li>`).join('')}</ol></div>` : ''}
       ${heeftMacros ? `<div class="section"><h3>Voedingswaarden <small class="count">${esc(r.voedingswaarden_basis || 'per portie')}</small></h3>
         <div class="macros">${macro(r.kcal, 'kcal', 'kcal')}${macro(r.eiwit, 'eiwit')}${macro(r.koolhydraten, 'koolhydraten')}${macro(r.suikers, 'suikers')}${macro(r.vet, 'vet')}${macro(r.verzadigd_vet, 'verz. vet')}${macro(r.vezels, 'vezels')}${macro(r.zout, 'zout')}</div>
         <p class="note">Schattingen; controleer je eigen merken.</p></div>` : ''}
@@ -417,12 +432,13 @@ function bindDetail(r) {
   $('#favBtn', el).onclick = () => { S.fav.has(r.id) ? S.fav.delete(r.id) : S.fav.add(r.id); opslag.set('fav', [...S.fav]); her(); if (route().naam !== 'r' || matchMedia('(min-width: 900px)').matches) renderLijst(S.vorigeLijst === 'favorieten'); };
   el.querySelectorAll('[data-p]').forEach(b => b.onclick = () => { wijzigPorties(r, Number(b.dataset.p)); her(); });
   el.querySelectorAll('[data-variant]').forEach(b => b.onclick = () => { S.variant[r.id] = b.dataset.variant; her(); });
+  el.querySelectorAll('[data-mc]').forEach(b => b.onclick = () => { S.mcVoorkeur = b.dataset.mc; opslag.set('mcVoorkeur', S.mcVoorkeur); her(); });
   el.querySelectorAll('[data-ing]').forEach(c => c.onchange = () => { (S.aangevinkt[r.id] ||= {})[c.dataset.ing] = c.checked; c.closest('.ing').classList.toggle('done', c.checked); });
   const lb = $('#lijstBtn', el);
   if (lb) lb.onclick = () => {
     const bestaand = S.lijst.find(x => x.id === r.id);
-    const groepen = parseIngredienten(r.ingredienten);
-    const item = { id: r.id, factor: factor(r), variant: gekozenVariant(r, groepen) };
+    const groepen = parseIngredienten(actief(r).ingredienten);
+    const item = { id: r.id, factor: factor(r), variant: gekozenVariant(r, groepen), mc: actief(r).variant };
     if (bestaand) Object.assign(bestaand, item); else S.lijst.push(item);
     bewaarLijst(); her();
     toast(bestaand ? 'Boodschappenlijst bijgewerkt' : 'Toegevoegd aan je boodschappenlijst');
@@ -436,7 +452,7 @@ let wakeLock = null;
 async function houdWakker() { try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch (e) { } }
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && !$('#cook').hidden) houdWakker(); });
 function startKookmodus(r) {
-  const stappen = regels(r.stappen); let i = 0, toonIng = false;
+  const stappen = regels(actief(r).stappen); let i = 0, toonIng = false;
   const box = $('#cook'); box.hidden = false; houdWakker(); startKookmodus.bezig = true;
   const teken = () => {
     const f = factor(r), basis = getal(r.porties); const { groepen } = zichtbareGroepen(r);
@@ -501,7 +517,8 @@ function boodschappenItems() {
   const map = new Map();
   for (const l of S.lijst) {
     const r = vind(l.id); if (!r) continue;
-    const groepen = parseIngredienten(r.ingredienten).filter(g => !g.variant || g.titel === (l.variant || gekozenVariant(r, parseIngredienten(r.ingredienten))));
+    const alleGroepen = parseIngredienten(actief(r, l.mc || 'fornuis').ingredienten);
+    const groepen = alleGroepen.filter(g => !g.variant || g.titel === (l.variant || gekozenVariant(r, alleGroepen)));
     for (const g of groepen) for (const it of g.items) {
       let q = it.q, q2 = it.q2, unit = it.unit;
       if (unit === 'kg') { q *= 1000; q2 = q2 && q2 * 1000; unit = 'g'; }
@@ -534,7 +551,7 @@ function renderBoodschappen(el) {
       <span>${items.length ? `<button class="btn small" id="deel">${ICON.share} Delen</button>` : ''}</span></div></div>
     <div class="pane-inner">
       ${S.lijst.length ? `<div class="section"><h3>Recepten op je lijst</h3>${S.lijst.map(l => { const r = vind(l.id); if (!r) return ''; const b = getal(r.porties);
-        return `<div class="shop-recipe"><a href="#/r/${encodeURIComponent(r.id)}">${esc(r.naam)}<span class="from count" style="display:block;font-weight:400">${b ? fmt(b * l.factor) + ' porties' : '× ' + fmt(l.factor)}${l.variant ? ' · ' + esc(l.variant) : ''}</span></a>
+        return `<div class="shop-recipe"><a href="#/r/${encodeURIComponent(r.id)}">${esc(r.naam)}<span class="from count" style="display:block;font-weight:400">${b ? fmt(b * l.factor) + ' porties' : '× ' + fmt(l.factor)}${l.variant ? ' · ' + esc(l.variant) : ''}${l.mc && l.mc !== 'fornuis' && Varianten.beschikbareVarianten(r).includes(l.mc) ? ' · ' + Varianten.LABELS[l.mc] : ''}</span></a>
           <span class="stepper"><button data-rf="${esc(r.id)}" data-d="-1">−</button><button data-rf="${esc(r.id)}" data-d="1">+</button></span>
           <button class="pantry-btn" data-weg="${esc(r.id)}">Verwijder</button></div>`; }).join('')}</div>` : `<div class="empty">Open een recept en tik op <b>Op boodschappenlijst</b>.<br>De ingrediënten van alle gekozen recepten worden hier samengeteld per winkelafdeling.</div>`}
       ${volg.filter(a => groepen[a]).map(a => `<div class="section"><h3>${esc(a)}</h3>${groepen[a].sort((x, y) => x.naam.localeCompare(y.naam, 'nl')).map(i => rij(i, false)).join('')}</div>`).join('')}
@@ -646,6 +663,16 @@ function renderFormulier(el, id) {
       <label class="field"><span>Vezels (g)</span><input type="number" step="any" name="vezels" value="${v('vezels')}"></label>
       <label class="field"><span>Portiegewicht</span><input type="text" name="portiegewicht" value="${v('portiegewicht')}"></label></div>
     <label class="field"><span>Extra info <small>bewaren, variaties, tips – "## Kopje" en "- punt" mogen</small></span><textarea name="extra">${v('extra')}</textarea></label>
+    <details class="section mc-form" ${r && Varianten.beschikbareVarianten(r).length > 1 ? 'open' : ''}><summary><b>Multicooker (Fornello)</b> <small class="count">optioneel</small></summary>
+      <p class="note">Instellingen op één regel, bv. "Programma: Sauteren + Stoofvlees | Druk: Hoog | Ventiel: SEALING | Tijd: 35 min | Ontluchten: natuurlijk 15 min". Ingrediënten leeg laten = dezelfde als hierboven.</p>
+      <label class="field"><span>Snelkoken – instellingen</span><input type="text" name="mc_snel_instellingen" value="${v('mc_snel_instellingen')}"></label>
+      <label class="field"><span>Snelkoken – ingrediënten</span><textarea name="mc_snel_ingredienten">${v('mc_snel_ingredienten')}</textarea></label>
+      <label class="field"><span>Snelkoken – stappen <small>één stap per regel</small></span><textarea name="mc_snel_stappen">${v('mc_snel_stappen')}</textarea></label>
+      <label class="field"><span>Slowcook – instellingen</span><input type="text" name="mc_slow_instellingen" value="${v('mc_slow_instellingen')}"></label>
+      <label class="field"><span>Slowcook – ingrediënten</span><textarea name="mc_slow_ingredienten">${v('mc_slow_ingredienten')}</textarea></label>
+      <label class="field"><span>Slowcook – stappen</span><textarea name="mc_slow_stappen">${v('mc_slow_stappen')}</textarea></label>
+      <label class="field"><span>Multicooker – tips</span><textarea name="mc_tips">${v('mc_tips')}</textarea></label>
+    </details>
     <div class="actions"><button class="btn primary">Opslaan</button><button type="button" class="btn" onclick="history.back()">Annuleren</button></div>
     ${!dataUrl() || !S.instellingen.sleutel ? '<p class="note">Let op: zonder Google-koppeling en schrijfsleutel (zie Meer) wordt het recept enkel op dit toestel bewaard.</p>' : ''}
     <div style="height:40px"></div>
@@ -655,6 +682,7 @@ function renderFormulier(el, id) {
     e.preventDefault();
     const fd = new FormData(e.target); const rec = Object.assign({}, r ? (({ _zoek, ...x }) => x)(r) : {});
     for (const [k, val] of fd.entries()) rec[k] = ['porties', 'voorbereiding_min', 'bereiding_min', 'totaal_min', 'kcal', 'eiwit', 'koolhydraten', 'vet', 'vezels'].includes(k) ? (val === '' ? null : Number(val)) : val.trim();
+    rec.multicooker = Varianten.beschikbareVarianten(rec).length > 1;
     if (!r) { rec.id = norm(rec.naam).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60); let b = rec.id, n = 2; while (vind(rec.id)) rec.id = b + '-' + n++; rec.toegevoegd = new Date().toISOString().slice(0, 10); rec.volgorde = Math.max(0, ...S.data.recepten.map(x => x.volgorde || 0)) + 1; if (!rec.voedingswaarden_basis) rec.voedingswaarden_basis = 'per portie'; }
     else rec.gewijzigd = new Date().toISOString().slice(0, 10);
     // lokaal meteen bijwerken

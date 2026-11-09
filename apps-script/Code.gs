@@ -26,17 +26,27 @@ const KOLOMMEN = [
   ['kcal', 'kcal'], ['eiwit', 'Eiwit (g)'], ['koolhydraten', 'Koolhydraten (g)'], ['suikers', 'Suikers (g)'],
   ['vet', 'Vet (g)'], ['verzadigd_vet', 'Verzadigd vet (g)'], ['vezels', 'Vezels (g)'], ['zout', 'Zout (g)'],
   ['voedingswaarden_basis', 'Voedingswaarden per'], ['extra', 'Extra info'],
-  ['volgorde', 'Volgorde'], ['toegevoegd', 'Toegevoegd'], ['gewijzigd', 'Gewijzigd']
+  ['volgorde', 'Volgorde'], ['toegevoegd', 'Toegevoegd'], ['gewijzigd', 'Gewijzigd'],
+  // Multicooker (Fornello): een variant bestaat als zijn stappenveld niet leeg is
+  ['multicooker', 'Multicooker'],
+  ['mc_snel_instellingen', 'Snelkoken – instellingen'], ['mc_snel_ingredienten', 'Snelkoken – ingrediënten'], ['mc_snel_stappen', 'Snelkoken – stappen'],
+  ['mc_slow_instellingen', 'Slowcook – instellingen'], ['mc_slow_ingredienten', 'Slowcook – ingrediënten'], ['mc_slow_stappen', 'Slowcook – stappen'],
+  ['mc_tips', 'Multicooker – tips']
 ];
+// Updatebestand dat bij de app op GitHub staat (zelfde map als de startdata)
+const UPDATE_URL = STARTDATA_URL.replace('recepten.json', 'update-2026-11-multicooker.json');
 const GETAL_VELDEN = ['voorbereiding_min', 'bereiding_min', 'totaal_min', 'porties', 'kcal', 'eiwit', 'koolhydraten',
   'suikers', 'vet', 'verzadigd_vet', 'vezels', 'zout', 'volgorde'];
+const BOOL_VELDEN = ['multicooker'];
 const CAT_KOLOMMEN = [['nr', 'Nr'], ['categorie', 'Categorie'], ['beschrijving', 'Beschrijving'], ['extra', 'Extra info']];
 
 // ---------------------------------------------------------------- menu
 
 function onOpen() {
   SpreadsheetApp.getUi().createMenu('Kookboek')
+    .addItem('Eerste installatie', 'installeer')
     .addItem('Inbox nu importeren', 'importeerInboxMenu')
+    .addItem('Update importeren', 'importeerUpdate')
     .addItem('Sleutel en mappen tonen', 'toonInfo')
     .addSeparator()
     .addItem('Opmaak herstellen', 'maakOpmaak')
@@ -50,6 +60,7 @@ function importeerInboxMenu() {
 
 function toonInfo() {
   const p = PropertiesService.getScriptProperties();
+  if (!p.getProperty('SLEUTEL')) return SpreadsheetApp.getUi().alert('Nog niet geïnstalleerd. Kies eerst Kookboek > Eerste installatie.');
   SpreadsheetApp.getUi().alert(
     'Schrijfsleutel voor de app: ' + p.getProperty('SLEUTEL') +
     '\n\nInbox-map: https://drive.google.com/drive/folders/' + p.getProperty('INBOX_ID') +
@@ -66,12 +77,13 @@ function installeer() {
 
   // Startdata importeren als de tab nog leeg is
   const sh = ss.getSheetByName(TAB_RECEPTEN);
-  if (sh.getLastRow() < 2) {
+  if (laatsteRij(sh) < 2) {
     if (STARTDATA_URL.indexOf('JOUW-GITHUB-NAAM') >= 0) throw new Error('Vul eerst STARTDATA_URL in bovenaan het script.');
     const data = JSON.parse(UrlFetchApp.fetch(STARTDATA_URL).getContentText('UTF-8'));
     schrijfCategorieen(data.categorieen || []);
-    const rijen = (data.recepten || []).map(naarRij);
-    if (rijen.length) sh.getRange(2, 1, rijen.length, KOLOMMEN.length).setValues(rijen);
+    const koppen = leesKoppen(sh);
+    const rijen = (data.recepten || []).map(r => naarRij(r, koppen));
+    if (rijen.length) { sh.getRange(2, 1, rijen.length, koppen.length).setValues(rijen); zetVakjes(sh, 2, rijen.length + 1); }
   }
 
   // Mappen naast de spreadsheet
@@ -87,19 +99,25 @@ function installeer() {
 
   Logger.log('Klaar. Schrijfsleutel voor de app: ' + p.getProperty('SLEUTEL'));
   Logger.log('Inbox-map: https://drive.google.com/drive/folders/' + p.getProperty('INBOX_ID'));
+  try { toonInfo(); } catch (e) { /* uitgevoerd vanuit de editor: zie logboek */ }
 }
 
 function maakOpmaak() {
   const ss = SpreadsheetApp.getActive();
   let sh = ss.getSheetByName(TAB_RECEPTEN) || ss.insertSheet(TAB_RECEPTEN, 0);
-  zetKoppen(sh, KOLOMMEN.map(k => k[1]));
-  // Tekstkolommen als platte tekst (voorkomt dat "2-3" een datum wordt)
-  KOLOMMEN.forEach((k, i) => {
-    if (GETAL_VELDEN.indexOf(k[0]) < 0) sh.getRange(1, i + 1, sh.getMaxRows(), 1).setNumberFormat('@');
+  // Bestaande koppen blijven op hun plaats; ontbrekende kolommen komen achteraan
+  const bestaand = sh.getLastRow() > 0 ? sh.getRange(1, 1, 1, Math.max(sh.getLastColumn(), 1)).getValues()[0].filter(String) : [];
+  const koppen = bestaand.concat(KOLOMMEN.map(k => k[1]).filter(k => bestaand.indexOf(k) < 0));
+  zetKoppen(sh, koppen);
+  const sleutels = koppen.map(sleutelVanKop);
+  const breed = { naam: 240, beschrijving: 280, ingredienten: 320, stappen: 420, extra: 420, mc_snel_stappen: 420, mc_slow_stappen: 420, mc_snel_ingredienten: 300, mc_slow_ingredienten: 300, mc_tips: 320 };
+  sleutels.forEach((s, i) => {
+    // Tekstkolommen als platte tekst (voorkomt dat "2-3" een datum wordt)
+    if (s && GETAL_VELDEN.indexOf(s) < 0 && BOOL_VELDEN.indexOf(s) < 0) sh.getRange(1, i + 1, sh.getMaxRows(), 1).setNumberFormat('@');
+    sh.setColumnWidth(i + 1, breed[s] || (s === 'multicooker' ? 100 : 110));
   });
-  sh.getRange(2, 1, sh.getMaxRows() - 1, KOLOMMEN.length).setWrap(true).setVerticalAlignment('top');
-  const breed = { naam: 240, beschrijving: 280, ingredienten: 320, stappen: 420, extra: 420 };
-  KOLOMMEN.forEach((k, i) => sh.setColumnWidth(i + 1, breed[k[0]] || 110));
+  sh.getRange(2, 1, sh.getMaxRows() - 1, koppen.length).setWrap(true).setVerticalAlignment('top');
+  zetVakjes(sh, 2, laatsteRij(sh));
 
   let c = ss.getSheetByName(TAB_CATEGORIEEN) || ss.insertSheet(TAB_CATEGORIEEN, 1);
   zetKoppen(c, CAT_KOLOMMEN.map(k => k[1]));
@@ -146,18 +164,38 @@ function json(obj) {
 
 // ---------------------------------------------------------------- lezen
 
+function sleutelVanKop(k) { const f = KOLOMMEN.find(x => x[1] === k || x[0] === k); return f ? f[0] : null; }
+function leesKoppen(sh) { return sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0]; }
+// Laatste rij met een receptnaam (getLastRow telt ook lege selectievakjes mee)
+function laatsteRij(sh) {
+  const n = sh.getLastRow();
+  if (n < 2) return 1;
+  const i = leesKoppen(sh).map(sleutelVanKop).indexOf('naam');
+  if (i < 0) return n;
+  const kol = sh.getRange(2, i + 1, n - 1, 1).getValues();
+  for (let r = kol.length - 1; r >= 0; r--) if (String(kol[r][0]).trim() !== '') return r + 2;
+  return 1;
+}
+// Selectievakjes alleen op rijen met data
+function zetVakjes(sh, vanRij, totRij) {
+  if (totRij < vanRij) return;
+  leesKoppen(sh).map(sleutelVanKop).forEach((s, i) => { if (BOOL_VELDEN.indexOf(s) >= 0) sh.getRange(vanRij, i + 1, totRij - vanRij + 1, 1).insertCheckboxes(); });
+}
+const isWaar = v => v === true || /^(true|waar|ja|x|1)$/i.test(String(v).trim());
+
 function leesRecepten() {
   const sh = SpreadsheetApp.getActive().getSheetByName(TAB_RECEPTEN);
-  if (sh.getLastRow() < 2) return [];
-  const koppen = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
-  const sleutels = koppen.map(k => { const f = KOLOMMEN.find(x => x[1] === k || x[0] === k); return f ? f[0] : null; });
-  return sh.getRange(2, 1, sh.getLastRow() - 1, koppen.length).getValues()
+  if (laatsteRij(sh) < 2) return [];
+  const koppen = leesKoppen(sh);
+  const sleutels = koppen.map(sleutelVanKop);
+  return sh.getRange(2, 1, laatsteRij(sh) - 1, koppen.length).getValues()
     .map(rij => {
       const o = {};
       rij.forEach((v, i) => {
         const s = sleutels[i]; if (!s) return;
         if (v instanceof Date) v = Utilities.formatDate(v, 'Europe/Brussels', 'yyyy-MM-dd');
         if (GETAL_VELDEN.indexOf(s) >= 0) v = (v === '' || v === null) ? null : Number(String(v).replace(',', '.'));
+        if (BOOL_VELDEN.indexOf(s) >= 0) v = isWaar(v);
         o[s] = v;
       });
       return o;
@@ -181,11 +219,13 @@ function schrijfCategorieen(cats) {
 
 // ---------------------------------------------------------------- schrijven
 
-function naarRij(r) {
-  return KOLOMMEN.map(k => {
-    let v = r[k[0]];
-    if (v === undefined || v === null) return '';
-    if (Array.isArray(v)) v = v.join(k[0] === 'tags' ? ', ' : (k[0] === 'keukengerei' ? '; ' : '\n'));
+function naarRij(r, koppen) {
+  return koppen.map(kop => {
+    const s = sleutelVanKop(kop);
+    let v = s ? r[s] : r[kop];
+    if (v === undefined || v === null) return BOOL_VELDEN.indexOf(s) >= 0 ? false : '';
+    if (Array.isArray(v)) v = v.join(s === 'tags' ? ', ' : (s === 'keukengerei' ? '; ' : '\n'));
+    if (BOOL_VELDEN.indexOf(s) >= 0) v = isWaar(v);
     return v;
   });
 }
@@ -213,17 +253,20 @@ function bewaar(invoer) {
   const lock = LockService.getScriptLock(); lock.waitLock(20000);
   try {
     const sh = SpreadsheetApp.getActive().getSheetByName(TAB_RECEPTEN);
-    const n = Math.max(sh.getLastRow() - 1, 0);
-    const data = n ? sh.getRange(2, 1, n, KOLOMMEN.length).getValues() : [];
-    const iId = 0, iNaam = 4, iVolg = KOLOMMEN.findIndex(k => k[0] === 'volgorde'), iToeg = KOLOMMEN.findIndex(k => k[0] === 'toegevoegd');
+    const koppen = leesKoppen(sh), sleutels = koppen.map(sleutelVanKop);
+    const n = Math.max(laatsteRij(sh) - 1, 0);
+    const data = n ? sh.getRange(2, 1, n, koppen.length).getValues() : [];
+    const iId = sleutels.indexOf('id'), iNaam = sleutels.indexOf('naam'), iVolg = sleutels.indexOf('volgorde');
+    const mcVlag = o => isWaar(String(o.mc_snel_stappen || '').trim() !== '' || String(o.mc_slow_stappen || '').trim() !== '');
     let rijIdx = -1;
     if (r.id) rijIdx = data.findIndex(x => x[iId] === r.id);
     if (rijIdx < 0) rijIdx = data.findIndex(x => String(x[iNaam]).trim().toLowerCase() === String(r.naam).trim().toLowerCase());
     const vandaag = Utilities.formatDate(new Date(), 'Europe/Brussels', 'yyyy-MM-dd');
     if (rijIdx >= 0) {
-      const oud = {}; KOLOMMEN.forEach((k, i) => oud[k[0]] = data[rijIdx][i]);
+      const oud = {}; sleutels.forEach((k, i) => { oud[k || koppen[i]] = data[rijIdx][i]; }); // ook eigen kolommen behouden
       const nieuw = Object.assign(oud, r, { id: oud.id, gewijzigd: vandaag });
-      sh.getRange(rijIdx + 2, 1, 1, KOLOMMEN.length).setValues([naarRij(nieuw)]);
+      nieuw.multicooker = mcVlag(nieuw);
+      sh.getRange(rijIdx + 2, 1, 1, koppen.length).setValues([naarRij(nieuw, koppen)]);
       return { id: nieuw.id, nieuw: false };
     }
     const ids = data.map(x => x[iId]);
@@ -231,18 +274,44 @@ function bewaar(invoer) {
     while (ids.indexOf(id) >= 0) id = basis + '-' + (k++);
     const maxVolg = data.reduce((m, x) => Math.max(m, Number(x[iVolg]) || 0), 0);
     r.id = id; r.volgorde = r.volgorde || maxVolg + 1; r.toegevoegd = r.toegevoegd || vandaag;
-    sh.getRange(n + 2, 1, 1, KOLOMMEN.length).setValues([naarRij(r)]);
+    r.multicooker = mcVlag(r);
+    sh.getRange(n + 2, 1, 1, koppen.length).setValues([naarRij(r, koppen)]);
+    zetVakjes(sh, n + 2, n + 2);
     return { id: id, nieuw: true };
   } finally { lock.releaseLock(); }
 }
 
 function verwijder(id) {
   const sh = SpreadsheetApp.getActive().getSheetByName(TAB_RECEPTEN);
-  const ids = sh.getRange(2, 1, Math.max(sh.getLastRow() - 1, 1), 1).getValues().map(r => r[0]);
+  const ids = sh.getRange(2, 1, Math.max(laatsteRij(sh) - 1, 1), 1).getValues().map(r => r[0]);
   const i = ids.indexOf(id);
   if (i < 0) return false;
   sh.deleteRow(i + 2);
   return true;
+}
+
+// ---------------------------------------------------------------- update van GitHub
+
+function importeerUpdate() {
+  if (STARTDATA_URL.indexOf('JOUW-GITHUB-NAAM') >= 0) throw new Error('Vul eerst STARTDATA_URL in bovenaan het script.');
+  maakOpmaak();
+  const data = JSON.parse(UrlFetchApp.fetch(UPDATE_URL).getContentText('UTF-8'));
+  const res = { categorieen: 0, nieuw: 0, bijgewerkt: 0 };
+  (data.categorieen || []).forEach(c => { bewaarCategorie(c); res.categorieen++; });
+  (data.recepten || []).forEach(r => { bewaar(r).nieuw ? res.nieuw++ : res.bijgewerkt++; });
+  const melding = 'Update klaar: ' + res.nieuw + ' nieuwe recepten, ' + res.bijgewerkt + ' bijgewerkt, ' + res.categorieen + ' categorie(ën).';
+  Logger.log(melding);
+  try { SpreadsheetApp.getUi().alert(melding); } catch (e) { /* uitgevoerd vanuit de editor */ }
+  return res;
+}
+
+function bewaarCategorie(c) {
+  const sh = SpreadsheetApp.getActive().getSheetByName(TAB_CATEGORIEEN);
+  const n = Math.max(sh.getLastRow() - 1, 0);
+  const namen = n ? sh.getRange(2, 2, n, 1).getValues().map(x => String(x[0]).trim().toLowerCase()) : [];
+  const i = namen.indexOf(String(c.categorie).trim().toLowerCase());
+  const rij = [[c.nr || '', c.categorie, c.beschrijving || '', c.extra || '']];
+  sh.getRange(i >= 0 ? i + 2 : n + 2, 1, 1, 4).setValues(rij);
 }
 
 // ---------------------------------------------------------------- inbox
@@ -288,9 +357,12 @@ const UITLEG = [
   'Tags: komma-gescheiden (bv. Eiwitrijk, Mealprep, Airfryer, Kip, Vriezer). Keukengerei: gescheiden door "; ".',
   'Voedingswaarden: getallen per portie (kcal, eiwit, ...). "Voedingswaarden per" zegt waarop ze slaan (standaard per portie).',
   'Extra info: vrije tekst in markdown: "## Kopje", "- opsomming", tabellen met | kolom | kolom |.',
+  'Multicooker (Fornello): vul "Snelkoken – stappen" (onder druk) en/of "Slowcook – stappen" in; dan verschijnt in de app een schakelaar Fornuis / Snelkoken / Slowcook en wordt het vakje Multicooker automatisch aangevinkt. Instellingen op één regel: "Programma: Sauteren + Stoofvlees | Druk: Hoog | Ventiel: SEALING | Tijd: 35 min | Ontluchten: natuurlijk 15 min" (Druk: Hoog, Laag of geen; Ventiel VENTING bij Slowcook). Ingrediënten van een variant leeg laten = dezelfde als het gewone recept; anders de volledige lijst. "Multicooker – tips": vulhoogte, porties, indikken.',
+  'Regels Fornello 6 L: minstens 250 ml vocht onder druk (soep 1 liter), max. 2/3 vol (½ bij pap, peulvruchten en pasta), zuivel pas na het drukkoken, saus indikken op Sauteren.',
   '',
   'Recepten toevoegen via de Drive-inbox (ideaal voor AI):',
   'Zet een bestand (.json, of een Google Doc met JSON-tekst) in de map "Kookboek Inbox". Binnen 15 minuten (of meteen als je de app opent) wordt het recept toegevoegd en verhuist het bestand naar "Kookboek Verwerkt". Bestaat er al een recept met dezelfde naam of ID, dan wordt dat bijgewerkt. Bij een fout krijgt het bestand "FOUT - " voor de naam en staat de reden in de bestandsbeschrijving.',
+  'Een AI mag ook alleen de multicookervelden van een bestaand recept aanvullen: {"naam":"<bestaande naam>","categorie":"…","mc_snel_instellingen":"…","mc_snel_stappen":"…","mc_tips":"…"}. Andere kolommen blijven dan ongewijzigd.',
   'JSON-formaat (één object of een lijst van objecten): {"naam":"…","categorie":"Avondmaaltijden","soort":"recept","beschrijving":"…","moeilijkheid":"Gemakkelijk","voorbereiding_min":15,"bereiding_min":20,"totaal_min":35,"porties":4,"portiegewicht":"ca. 400 g","tags":"Eiwitrijk, Kip","keukengerei":"Koekenpan; Snijplank","ingredienten":"600 g kipfilet\\n1 st ui","stappen":"Snijd de kip.\\nBak 8 minuten.","kcal":520,"eiwit":45,"koolhydraten":50,"suikers":6,"vet":14,"verzadigd_vet":4,"vezels":7,"zout":1.8,"voedingswaarden_basis":"per portie","extra":"## Bewaren\\nKoelkast 2-3 dagen."}',
-  'Bestaande categorieën: Ontbijt, Tussendoortjes en snacks, Lunch en middageten, Avondmaaltijden, Mealprep-gerechten, Bijgerechten en salades, Desserts en zoete snacks, Marinades, Warme en koude sauzen, Gezonde en eiwitrijke sauzen, Kruidenmixen, Basisbereidingen en praktische kooktips, Bewaar-, invries- en opwarmrichtlijnen, Omrekeningstabellen en voedingsinformatie. Een nieuwe categorie mag ook: voeg ze dan ook toe in de tab Categorieën.'
+  'Bestaande categorieën: Ontbijt, Tussendoortjes en snacks, Lunch en middageten, Avondmaaltijden, Mealprep-gerechten, Bijgerechten en salades, Desserts en zoete snacks, Marinades, Warme en koude sauzen, Gezonde en eiwitrijke sauzen, Kruidenmixen, Basisbereidingen en praktische kooktips, Bewaar-, invries- en opwarmrichtlijnen, Omrekeningstabellen en voedingsinformatie, Soepen. Een nieuwe categorie mag ook: voeg ze dan ook toe in de tab Categorieën.'
 ];
