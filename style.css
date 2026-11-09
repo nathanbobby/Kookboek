@@ -224,3 +224,18 @@ textarea { min-height: 120px; resize: vertical; line-height: 1.45; }
   .cook-top { flex-wrap: wrap; row-gap: 6px; }
   .cook-porties { order: 3; width: 100%; padding: 0 8px 4px; }
 }
+
+/* ---------- multicooker ---------- */
+.mc-schakelaar { display: flex; margin: 14px 0 0; background: var(--surface-2); border-radius: 12px; padding: 4px; gap: 4px; }
+.mc-schakelaar button { flex: 1; border: 0; background: transparent; border-radius: 9px; padding: 10px 6px; font-weight: 600; font-size: 15px; color: var(--muted); cursor: pointer; min-height: 44px; }
+.mc-schakelaar button.on { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
+.mc-schakelaar button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.mc-kaart { border: 1px solid var(--line); border-radius: 12px; padding: 4px 14px; margin: 0 0 12px; background: var(--bg); }
+.mc-kaart dl { margin: 0; }
+.mc-kaart dl > div { display: grid; grid-template-columns: 110px 1fr; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 14.5px; }
+.mc-kaart dl > div:last-child { border-bottom: 0; }
+.mc-kaart dt { color: var(--muted); }
+.mc-kaart dd { margin: 0; font-weight: 600; }
+.mc-tips { margin: 0 0 14px; font-size: 14.5px; }
+.mc-tips summary, .mc-form summary { cursor: pointer; color: var(--accent); font-weight: 600; padding: 4px 0; }
+.mc-let-op { color: var(--warm); }

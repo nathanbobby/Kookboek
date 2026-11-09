@@ -64,3 +64,18 @@ Je hebt 3 onderdelen:
 ## Nieuwe app-versie (alleen als de app-bestanden zelf veranderen)
 
 Upload de gewijzigde bestanden op GitHub en verhoog in `sw.js` de `VERSIE` (bv. `kookboek-v2`). De app werkt zichzelf dan bij. Voor nieuwe recepten is dit **niet** nodig: die komen uit de Sheet.
+
+---
+
+## Update november 2026 – multicooker (Fornello) en Soepen
+
+Eenmalig, ± 5 minuten:
+
+1. **GitHub**: open je repository `kookboek` → **Add file → Upload files** en sleep deze bestanden uit de zip erin (bestaande worden overschreven):
+   `index.html`, `app.js`, `style.css`, `sw.js`, `stappen.js`, `varianten.js` (nieuw), `data/recepten.json` en `data/update-2026-11-multicooker.json` (nieuw; sleep de map `data` mee). Klik **Commit changes**.
+2. **Google Sheet → Extensies → Apps Script**: vervang de inhoud van `Code.gs` door de nieuwe `apps-script/Code.gs`. Zet op regel 14 opnieuw je GitHub-naam in `STARTDATA_URL` en klik 💾.
+3. **Implementeren → Implementaties beheren → ✏️ → Versie: Nieuwe versie → Implementeren** (de web-app-URL blijft dezelfde).
+4. Herlaad de Sheet en kies **Kookboek → Update importeren**. Je krijgt een melding met het aantal nieuwe en bijgewerkte recepten. Er komen 8 kolommen achteraan bij (o.a. het vakje **Multicooker**), 24 Fornello-recepten en de categorie **Soepen**. Wat je zelf in andere kolommen aanpaste, blijft staan.
+5. Open de app op gsm en tablet met internet: ze laadt de nieuwe versie één keer opnieuw.
+
+**Gebruik:** op een recept met multicookervariant zie je bovenaan **Fornuis · Snelkoken · Slowcook**. De app onthoudt je keuze. In de snelfilters staat **Multicooker**, bij de categorieën **Soepen**.
